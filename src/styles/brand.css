@@ -1,0 +1,41 @@
+@import "./tokens.css";
+
+:root {
+  --background: var(--brand-charcoal);
+  --foreground: var(--brand-cream);
+  --card: var(--brand-charcoal-elevated);
+  --card-foreground: var(--brand-cream);
+  --popover: var(--brand-charcoal-elevated);
+  --popover-foreground: var(--brand-cream);
+  --primary: var(--brand-cream);
+  --primary-foreground: var(--brand-charcoal);
+  --secondary: var(--brand-charcoal-muted);
+  --secondary-foreground: var(--brand-cream);
+  --muted: var(--brand-charcoal-muted);
+  --muted-foreground: #a3a3a0;
+  --accent: var(--brand-orange);
+  --accent-foreground: var(--brand-white);
+  --destructive: #ef4444;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --ring: var(--brand-orange);
+  --radius: var(--radius-brand-lg);
+  --sidebar: var(--brand-charcoal);
+  --sidebar-foreground: var(--brand-cream);
+  --sidebar-primary: var(--brand-orange);
+  --sidebar-primary-foreground: var(--brand-white);
+  --sidebar-accent: var(--brand-charcoal-muted);
+  --sidebar-accent-foreground: var(--brand-cream);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: var(--brand-orange);
+  --chart-1: var(--brand-orange);
+  --chart-2: var(--brand-cream);
+  --chart-3: #a3a3a0;
+  --chart-4: #525252;
+  --chart-5: var(--brand-charcoal-subtle);
+}
+
+.dark {
+  --background: var(--brand-charcoal);
+  --foreground: var(--brand-cream);
+}

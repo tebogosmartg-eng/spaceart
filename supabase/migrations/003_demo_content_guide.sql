@@ -1,0 +1,15 @@
+-- SPACEART Demo Content Guide
+-- Demo creatives/listings require auth.users + profiles rows (FK constraints).
+--
+-- RECOMMENDED: Use built-in demo fallback (NEXT_PUBLIC_USE_DEMO_CONTENT=true, default)
+-- The app shows curated demo creatives/listings when the database is empty.
+--
+-- TO SEED REAL DB RECORDS after onboarding test users:
+-- 1. Sign up 3 test accounts via /auth/sign-up
+-- 2. Complete creative profiles in dashboard
+-- 3. As admin, approve profiles at /admin/reviews
+-- 4. Create listings and approve them
+-- 5. Mark featured/trending in Supabase:
+--
+-- UPDATE creatives SET is_featured = true, status = 'approved' WHERE slug = 'your-slug';
+-- UPDATE listings SET is_trending = true, status = 'published' WHERE slug = 'your-listing-slug';
