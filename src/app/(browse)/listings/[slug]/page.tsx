@@ -4,6 +4,7 @@ import { getListingBySlug } from "@/domains/listings/queries/get-listings";
 import { Container } from "@/shared/ui/container";
 import { WhatsAppButton } from "@/shared/ui/whatsapp-button";
 import { StickyWhatsAppBar } from "@/shared/ui/sticky-whatsapp-bar";
+import { ShareActions } from "@/shared/ui/share-actions";
 import { formatPrice } from "@/shared/lib/utils";
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -13,9 +14,30 @@ export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
   const listing = await getListingBySlug(slug);
   if (!listing) return { title: "Listing Not Found" };
+
+  const title = listing.title;
+  const description =
+    listing.description ?? `${title} — available on SPACEART`;
+  const imageUrl = listing.listing_media?.sort(
+    (a, b) => a.sort_order - b.sort_order
+  )[0]?.url;
+
   return {
-    title: listing.title,
-    description: listing.description ?? undefined,
+    title,
+    description,
+    openGraph: {
+      title: `${title} | SPACEART`,
+      description,
+      url: `/listings/${slug}`,
+      type: "website",
+      ...(imageUrl && { images: [{ url: imageUrl, alt: title }] }),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | SPACEART`,
+      description,
+      ...(imageUrl && { images: [imageUrl] }),
+    },
   };
 }
 
@@ -81,6 +103,14 @@ export default async function ListingDetailPage({ params }: PageProps) {
               />
             </div>
           )}
+
+          <div className="mt-6 border-t border-white/8 pt-6">
+            <ShareActions
+              contentType="listing"
+              slug={slug}
+              title={listing.title}
+            />
+          </div>
         </div>
       </div>
 
@@ -89,6 +119,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
           phone={creative.whatsapp_number}
           creativeName={creative.display_name}
           listingTitle={listing.title}
+          slug={slug}
+          contentType="listing"
         />
       )}
       <div className="h-20 md:hidden" aria-hidden />

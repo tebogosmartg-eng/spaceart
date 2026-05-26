@@ -3,6 +3,7 @@ import { MapPin, LayoutGrid } from "lucide-react";
 import { CreatorTag } from "@/shared/ui/brand";
 import type { Creative } from "@/shared/types/database";
 import { WhatsAppButton } from "@/shared/ui/whatsapp-button";
+import { ShareActions } from "@/shared/ui/share-actions";
 import { cn } from "@/shared/lib/utils";
 
 interface CreativeProfileHeroProps {
@@ -85,14 +86,19 @@ export function CreativeProfileHero({
             </div>
           </div>
 
-          {creative.whatsapp_number && (
-            <div className="hidden shrink-0 md:block">
+          <div className="hidden shrink-0 items-center gap-3 md:flex">
+            {creative.whatsapp_number && (
               <WhatsAppButton
                 phone={creative.whatsapp_number}
                 creativeName={creative.display_name}
               />
-            </div>
-          )}
+            )}
+            <ShareActions
+              contentType="portfolio"
+              slug={creative.slug}
+              title={creative.display_name}
+            />
+          </div>
         </div>
 
         {creative.bio && (
@@ -100,6 +106,14 @@ export function CreativeProfileHero({
             {creative.bio}
           </p>
         )}
+
+        <div className="mt-6 md:hidden">
+          <ShareActions
+            contentType="portfolio"
+            slug={creative.slug}
+            title={creative.display_name}
+          />
+        </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import { siteConfig } from "@/shared/config/site";
 import { QueryProvider } from "@/shared/providers/query-provider";
+import { ToastProvider } from "@/shared/ui/toast";
 import "./globals.css";
 
 const inter = Inter({
@@ -61,7 +62,9 @@ export default function RootLayout({
       className={`dark ${inter.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-body bg-brand-mesh">
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </QueryProvider>
       </body>
     </html>
   );

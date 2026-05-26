@@ -11,6 +11,7 @@ import {
   getDemoPublishedListings,
 } from "@/shared/data/demo-content";
 import { useDemoFallback } from "@/shared/lib/demo";
+import { rankCreatives, backfillCreatives } from "@/shared/lib/ranking";
 import type { Creative } from "@/shared/types/database";
 
 export const getFeaturedCreatives = unstable_cache(
@@ -20,19 +21,49 @@ export const getFeaturedCreatives = unstable_cache(
     }
 
     const supabase = createPublicClient();
-    const { data } = await supabase
+
+    // Fetch featured first, with a generous limit to allow ranking headroom
+    const { data: featured } = await supabase
       .from("creatives")
       .select("*")
       .eq("status", "approved")
       .eq("is_featured", true)
       .order("approved_at", { ascending: false })
-      .limit(6);
+      .limit(12);
 
-    const results = (data as Creative[]) ?? [];
-    if (results.length === 0 && useDemoFallback()) return getDemoFeaturedCreatives();
-    return results;
+    let pool = (featured as Creative[]) ?? [];
+
+    // If fewer than 6 featured, also pull recent approved to fill
+    if (pool.length < 6) {
+      const { data: recent } = await supabase
+        .from("creatives")
+        .select("*")
+        .eq("status", "approved")
+        .order("approved_at", { ascending: false })
+        .limit(12);
+
+      const existingIds = new Set(pool.map((c) => c.id));
+      const extras = ((recent as Creative[]) ?? []).filter(
+        (c) => !existingIds.has(c.id)
+      );
+      pool = [...pool, ...extras];
+    }
+
+    // Rank by authenticity — real creators surface first
+    const ranked = rankCreatives(pool);
+
+    if (ranked.length === 0 && useDemoFallback()) {
+      return getDemoFeaturedCreatives();
+    }
+
+    // Backfill demo only if real content is sparse
+    if (ranked.length < 3 && useDemoFallback()) {
+      return backfillCreatives(ranked, getDemoFeaturedCreatives(), 6);
+    }
+
+    return ranked.slice(0, 6);
   },
-  ["featured-creatives"],
+  ["featured-creatives-v2"],
   { revalidate: 60, tags: ["creatives"] }
 );
 
@@ -50,13 +81,16 @@ export async function getApprovedCreatives(options?: {
 
   const fetchCreatives = async () => {
     const supabase = hasFilters ? await createClient() : createPublicClient();
+    // Fetch more than requested to give ranking headroom
+    const fetchLimit = options?.limit ? options.limit * 2 : undefined;
+
     let query = supabase
       .from("creatives")
       .select("*")
       .eq("status", "approved")
       .order("approved_at", { ascending: false });
 
-    if (options?.limit) query = query.limit(options.limit);
+    if (fetchLimit) query = query.limit(fetchLimit);
     if (options?.province) {
       query = query.ilike("province", `%${options.province}%`);
     }
@@ -69,15 +103,21 @@ export async function getApprovedCreatives(options?: {
 
     const { data } = await query;
     let results = (data as Creative[]) ?? [];
+
     if (results.length === 0 && useDemoFallback()) {
       results = getDemoApprovedCreatives();
     }
+
     if (options?.province) {
       results = results.filter(
         (c) =>
           c.province?.toLowerCase().includes(options.province!.toLowerCase())
       );
     }
+
+    // Rank by authenticity — real creators surface first
+    results = rankCreatives(results);
+
     if (options?.limit) results = results.slice(0, options.limit);
     return results;
   };
@@ -85,7 +125,7 @@ export async function getApprovedCreatives(options?: {
   if (!hasFilters) {
     const cached = unstable_cache(
       fetchCreatives,
-      [`approved-creatives-${options?.limit ?? "all"}`],
+      [`approved-creatives-ranked-${options?.limit ?? "all"}`],
       { revalidate: 60, tags: ["creatives"] }
     );
     return cached();
@@ -112,7 +152,7 @@ export async function getCreativesByCategory(
     .eq("slug", categorySlug)
     .single();
 
-  if (!cat) return useDemoFallback() ? [] : [];
+  if (!cat) return [];
 
   const { data: listings } = await supabase
     .from("listings")
@@ -129,18 +169,20 @@ export async function getCreativesByCategory(
     if (c && !seen.has(c.id)) {
       seen.add(c.id);
       creatives.push(c);
-      if (creatives.length >= limit) break;
     }
   }
 
-  if (creatives.length === 0 && useDemoFallback()) {
+  // Rank by authenticity — real creators surface first
+  const ranked = rankCreatives(creatives);
+
+  if (ranked.length === 0 && useDemoFallback()) {
     const ids = new Set(
       getDemoPublishedListings({ categorySlug }).map((l) => l.creative_id)
     );
     return getDemoApprovedCreatives().filter((c) => ids.has(c.id)).slice(0, limit);
   }
 
-  return creatives;
+  return ranked.slice(0, limit);
 }
 
 export async function getCreativeBySlug(slug: string): Promise<Creative | null> {

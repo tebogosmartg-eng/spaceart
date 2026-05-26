@@ -11,6 +11,7 @@ import {
   getDemoTrendingListings,
 } from "@/shared/data/demo-content";
 import { useDemoFallback } from "@/shared/lib/demo";
+import { rankListings, backfillListings } from "@/shared/lib/ranking";
 import type { ListingWithRelations } from "@/shared/types/database";
 
 export const getTrendingListings = unstable_cache(
@@ -20,7 +21,9 @@ export const getTrendingListings = unstable_cache(
     }
 
     const supabase = createPublicClient();
-    const { data } = await supabase
+
+    // Fetch trending listings with headroom for ranking
+    const { data: trending } = await supabase
       .from("listings")
       .select(
         `*, categories(*), creatives!inner(*), listing_media(url, sort_order)`
@@ -29,13 +32,44 @@ export const getTrendingListings = unstable_cache(
       .eq("is_trending", true)
       .eq("creatives.status", "approved")
       .order("published_at", { ascending: false })
-      .limit(8);
+      .limit(16);
 
-    const results = (data as ListingWithRelations[]) ?? [];
-    if (results.length === 0 && useDemoFallback()) return getDemoTrendingListings();
-    return results;
+    let pool = (trending as ListingWithRelations[]) ?? [];
+
+    // If fewer than 6 trending, also pull recent published listings
+    if (pool.length < 6) {
+      const { data: recent } = await supabase
+        .from("listings")
+        .select(
+          `*, categories(*), creatives!inner(*), listing_media(url, sort_order)`
+        )
+        .eq("status", "published")
+        .eq("creatives.status", "approved")
+        .order("published_at", { ascending: false })
+        .limit(16);
+
+      const existingIds = new Set(pool.map((l) => l.id));
+      const extras = ((recent as ListingWithRelations[]) ?? []).filter(
+        (l) => !existingIds.has(l.id)
+      );
+      pool = [...pool, ...extras];
+    }
+
+    // Rank by authenticity — real listings with real media surface first
+    const ranked = rankListings(pool);
+
+    if (ranked.length === 0 && useDemoFallback()) {
+      return getDemoTrendingListings();
+    }
+
+    // Backfill demo only if real content is very sparse
+    if (ranked.length < 3 && useDemoFallback()) {
+      return backfillListings(ranked, getDemoTrendingListings(), 9);
+    }
+
+    return ranked.slice(0, 9);
   },
-  ["trending-listings"],
+  ["trending-listings-v2"],
   { revalidate: 60, tags: ["listings"] }
 );
 
@@ -50,6 +84,9 @@ export async function getPublishedListings(options?: {
   }
 
   const supabase = await createClient();
+  // Fetch extra to give ranking headroom
+  const fetchLimit = options?.limit ? options.limit * 2 : undefined;
+
   let query = supabase
     .from("listings")
     .select(
@@ -79,13 +116,19 @@ export async function getPublishedListings(options?: {
   }
 
   query = query.order("published_at", { ascending: false });
-  if (options?.limit) query = query.limit(options.limit);
+  if (fetchLimit) query = query.limit(fetchLimit);
 
   const { data } = await query;
-  const results = (data as ListingWithRelations[]) ?? [];
+  let results = (data as ListingWithRelations[]) ?? [];
+
   if (results.length === 0 && useDemoFallback()) {
     return getDemoPublishedListings(options);
   }
+
+  // Rank by authenticity — real listings surface first
+  results = rankListings(results);
+  if (options?.limit) results = results.slice(0, options.limit);
+
   return results;
 }
 

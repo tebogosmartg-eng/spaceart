@@ -19,9 +19,32 @@ export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
   const creative = await getCreativeBySlug(slug);
   if (!creative) return { title: "Creative Not Found" };
+
+  const title = creative.display_name;
+  const description =
+    creative.bio ?? `${title} — creator on ${siteConfig.name}`;
+  const imageUrl = creative.avatar_url?.startsWith("http")
+    ? creative.avatar_url
+    : creative.cover_image_url?.startsWith("http")
+      ? creative.cover_image_url
+      : undefined;
+
   return {
-    title: creative.display_name,
-    description: creative.bio ?? `${creative.display_name} on ${siteConfig.name}`,
+    title,
+    description,
+    openGraph: {
+      title: `${title} | ${siteConfig.name}`,
+      description,
+      url: `/creatives/${slug}`,
+      type: "profile",
+      ...(imageUrl && { images: [{ url: imageUrl, alt: title }] }),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | ${siteConfig.name}`,
+      description,
+      ...(imageUrl && { images: [imageUrl] }),
+    },
   };
 }
 
@@ -71,6 +94,8 @@ export default async function CreativeProfilePage({ params }: PageProps) {
           <StickyWhatsAppBar
             phone={creative.whatsapp_number}
             creativeName={creative.display_name}
+            slug={slug}
+            contentType="portfolio"
           />
           <div className="h-20 md:hidden" aria-hidden />
         </>
