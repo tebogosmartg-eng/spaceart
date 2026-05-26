@@ -1,11 +1,17 @@
 import { notFound } from "next/navigation";
-import { getCreativeBySlug } from "@/domains/creatives/queries/get-creatives";
+import {
+  getCreativeBySlug,
+  getSimilarCreatives,
+} from "@/domains/creatives/queries/get-creatives";
 import { getListingsByCreativeId } from "@/domains/listings/queries/get-listings";
 import { CreativeProfileHero } from "@/domains/creatives/components/creative-profile-hero";
 import { Container } from "@/shared/ui/container";
 import { ListingCard } from "@/shared/ui/listing-card";
+import { CreativeCard } from "@/shared/ui/creative-card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { SectionHeading } from "@/shared/ui/section-heading";
+import { BrowseBreadcrumb } from "@/shared/ui/browse-breadcrumb";
+import { DiscoveryCta } from "@/shared/ui/discovery-cta";
 import { StickyWhatsAppBar } from "@/shared/ui/sticky-whatsapp-bar";
 import { MotionReveal, StaggerChildren, StaggerItem } from "@/shared/ui/motion-reveal";
 import { siteConfig } from "@/shared/config/site";
@@ -53,10 +59,15 @@ export default async function CreativeProfilePage({ params }: PageProps) {
   const creative = await getCreativeBySlug(slug);
   if (!creative) notFound();
 
-  const listings = await getListingsByCreativeId(creative.id);
+  const [listings, similarCreatives] = await Promise.all([
+    getListingsByCreativeId(creative.id),
+    getSimilarCreatives(creative.id, creative.province, 4),
+  ]);
 
   return (
     <Container className="pb-24 md:pb-12">
+      <BrowseBreadcrumb href="/creatives" label="Back to creatives" />
+
       <MotionReveal>
         <CreativeProfileHero creative={creative} listingCount={listings.length} />
       </MotionReveal>
@@ -88,6 +99,36 @@ export default async function CreativeProfilePage({ params }: PageProps) {
           />
         )}
       </section>
+
+      {similarCreatives.length > 0 && (
+        <section className="mt-20 md:mt-28">
+          <MotionReveal>
+            <SectionHeading
+              title="More creatives you may like"
+              description={
+                creative.province
+                  ? `Discover other creators from ${creative.province} and beyond.`
+                  : "Discover other creators on the marketplace."
+              }
+              href="/creatives"
+              linkLabel="View all"
+            />
+          </MotionReveal>
+          <StaggerChildren className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {similarCreatives.map((c) => (
+              <StaggerItem key={c.id}>
+                <CreativeCard creative={c} />
+              </StaggerItem>
+            ))}
+          </StaggerChildren>
+        </section>
+      )}
+
+      <DiscoveryCta
+        href="/creatives"
+        label="Explore more creatives"
+        description="Discover curated African creatives across music, fashion, photography, and more."
+      />
 
       {creative.whatsapp_number && (
         <>

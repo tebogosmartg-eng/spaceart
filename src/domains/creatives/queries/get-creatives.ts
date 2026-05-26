@@ -185,6 +185,66 @@ export async function getCreativesByCategory(
   return ranked.slice(0, limit);
 }
 
+/**
+ * Lightweight "similar creatives" — same province, excluding the current profile.
+ * Falls back to recent approved creatives if province match is sparse.
+ */
+export async function getSimilarCreatives(
+  currentId: string,
+  province: string | null,
+  limit = 4
+): Promise<Creative[]> {
+  if (!isSupabaseConfigured()) {
+    if (!useDemoFallback()) return [];
+    return getDemoApprovedCreatives()
+      .filter((c) => c.id !== currentId)
+      .slice(0, limit);
+  }
+
+  const supabase = createPublicClient();
+
+  let results: Creative[] = [];
+
+  if (province) {
+    const { data } = await supabase
+      .from("creatives")
+      .select("*")
+      .eq("status", "approved")
+      .ilike("province", province)
+      .neq("id", currentId)
+      .order("approved_at", { ascending: false })
+      .limit(limit * 2);
+
+    results = (data as Creative[]) ?? [];
+  }
+
+  if (results.length < limit) {
+    const existingIds = new Set([currentId, ...results.map((c) => c.id)]);
+    const { data: fallback } = await supabase
+      .from("creatives")
+      .select("*")
+      .eq("status", "approved")
+      .neq("id", currentId)
+      .order("approved_at", { ascending: false })
+      .limit(limit * 2);
+
+    const extras = ((fallback as Creative[]) ?? []).filter(
+      (c) => !existingIds.has(c.id)
+    );
+    results = [...results, ...extras];
+  }
+
+  const ranked = rankCreatives(results);
+
+  if (ranked.length === 0 && useDemoFallback()) {
+    return getDemoApprovedCreatives()
+      .filter((c) => c.id !== currentId)
+      .slice(0, limit);
+  }
+
+  return ranked.slice(0, limit);
+}
+
 export async function getCreativeBySlug(slug: string): Promise<Creative | null> {
   if (!isSupabaseConfigured()) {
     return useDemoFallback() ? getDemoCreativeBySlug(slug) : null;

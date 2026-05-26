@@ -1,7 +1,10 @@
 import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getListingBySlug } from "@/domains/listings/queries/get-listings";
 import { Container } from "@/shared/ui/container";
+import { BrowseBreadcrumb } from "@/shared/ui/browse-breadcrumb";
+import { DiscoveryCta } from "@/shared/ui/discovery-cta";
 import { WhatsAppButton } from "@/shared/ui/whatsapp-button";
 import { StickyWhatsAppBar } from "@/shared/ui/sticky-whatsapp-bar";
 import { ShareActions } from "@/shared/ui/share-actions";
@@ -53,6 +56,8 @@ export default async function ListingDetailPage({ params }: PageProps) {
 
   return (
     <Container>
+      <BrowseBreadcrumb href="/listings" label="Back to listings" />
+
       <div className="grid gap-12 lg:grid-cols-2">
         <div className="space-y-4">
           {media && media.length > 0 ? (
@@ -84,7 +89,15 @@ export default async function ListingDetailPage({ params }: PageProps) {
           )}
           <h1 className="mt-2 font-heading text-4xl font-bold">{listing.title}</h1>
           {creative && (
-            <p className="mt-2 text-muted-foreground">{creative.display_name}</p>
+            <p className="mt-2 text-muted-foreground">
+              by{" "}
+              <Link
+                href={`/creatives/${creative.slug}`}
+                className="text-foreground underline-offset-4 transition-brand hover:text-accent hover:underline"
+              >
+                {creative.display_name}
+              </Link>
+            </p>
           )}
           <p className="mt-4 text-xl font-medium">
             {formatPrice(listing.price_from_cents, listing.price_label)}
@@ -113,6 +126,12 @@ export default async function ListingDetailPage({ params }: PageProps) {
           </div>
         </div>
       </div>
+
+      <DiscoveryCta
+        href="/listings"
+        label="Browse more listings"
+        description="Explore services and offerings from curated African creatives."
+      />
 
       {creative?.whatsapp_number && (
         <StickyWhatsAppBar
