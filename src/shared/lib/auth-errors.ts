@@ -7,7 +7,12 @@ const ERROR_MAPPINGS: ErrorMapping[] = [
   {
     pattern: /email.?rate.?limit|rate.?limit.*email|over_email_send_rate_limit/i,
     message:
-      "Too many attempts right now. Please wait a minute and try again.",
+      "We\u2019ve sent too many emails recently. Please wait a few minutes before trying again.",
+  },
+  {
+    pattern: /email.*not.*authorized|not.*authorized.*email/i,
+    message:
+      "This email address cannot receive messages from our system right now. Please try a different email or try again later.",
   },
   {
     pattern: /rate.?limit|too.?many.?requests|429/i,

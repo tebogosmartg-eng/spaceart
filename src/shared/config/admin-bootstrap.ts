@@ -3,7 +3,7 @@
  * Override via SPACEART_BOOTSTRAP_ADMIN_EMAIL (server) or
  * NEXT_PUBLIC_SPACEART_BOOTSTRAP_ADMIN_EMAIL (client-safe read for UI hints only).
  */
-const DEFAULT_BOOTSTRAP_ADMIN_EMAIL = "info.hasaawards@gmail.com";
+const DEFAULT_BOOTSTRAP_ADMIN_EMAIL = "info.hasawards@gmail.com";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

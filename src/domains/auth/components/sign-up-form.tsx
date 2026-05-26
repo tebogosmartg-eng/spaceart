@@ -43,8 +43,10 @@ export function SignUpForm() {
         });
 
         if (signUpError) {
-          setError(humanizeAuthError(signUpError.message));
-          if (isRateLimitError(signUpError.message)) cooldown.start();
+          const msg = signUpError.message;
+          const code = (signUpError as { code?: string }).code;
+          setError(humanizeAuthError(code || msg));
+          if (isRateLimitError(code || msg)) cooldown.start();
           return;
         }
 
@@ -59,7 +61,7 @@ export function SignUpForm() {
 
         if (!data.user && !data.session) {
           setError(
-            "We\u2019re temporarily unable to create your account. Please wait a moment and try again."
+            "An account with this email may already exist, or we\u2019re temporarily unable to send a confirmation email. Please try signing in, or wait a few minutes and try again."
           );
           cooldown.start();
           return;
