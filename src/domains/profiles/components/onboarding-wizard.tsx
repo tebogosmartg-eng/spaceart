@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useRef } from "react";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { motion, AnimatePresence } from "framer-motion";
 import { completeOnboarding } from "../actions/onboarding-actions";
@@ -28,6 +28,7 @@ export function OnboardingWizard() {
   const [error, setError] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
@@ -48,6 +49,10 @@ export function OnboardingWizard() {
       }
     };
   }, [avatarPreview]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [step]);
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -72,11 +77,12 @@ export function OnboardingWizard() {
     }
 
     setUploadWarning(
-      "Photo upload is temporarily unavailable. You can continue — we'll use a placeholder until storage is ready."
+      "Photo upload is temporarily unavailable. You can continue \u2014 we\u2019ll use a placeholder until storage is ready."
     );
   }
 
   function handleSubmit() {
+    if (pending) return;
     setError(null);
     const formData = new FormData();
     formData.set("display_name", displayName);
@@ -96,7 +102,7 @@ export function OnboardingWizard() {
       } catch (e) {
         if (isRedirectError(e)) throw e;
         setError(
-          e instanceof Error ? e.message : "Failed to complete onboarding"
+          "Something went wrong while saving your profile. Please try again."
         );
       }
     });
@@ -105,17 +111,23 @@ export function OnboardingWizard() {
   const reviewAvatarSrc = avatarUrl || avatarPreview || placeholderPreview;
 
   return (
-    <div className="mx-auto max-w-lg">
-      <div className="mb-8 flex gap-2">
-        {STEPS.map((label, i) => (
-          <div
-            key={label}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              i <= step ? "bg-accent" : "bg-muted"
-            }`}
-            aria-hidden
-          />
-        ))}
+    <div className="mx-auto max-w-lg px-1" ref={scrollRef}>
+      {/* Step progress indicator */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex gap-2">
+          {STEPS.map((label, i) => (
+            <div
+              key={label}
+              className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+                i <= step ? "bg-accent" : "bg-muted"
+              }`}
+              aria-hidden
+            />
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Step {step + 1} of {STEPS.length}: {STEPS[step]}
+        </p>
       </div>
 
       <AnimatePresence mode="wait">
@@ -127,15 +139,19 @@ export function OnboardingWizard() {
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
         >
           {step === 0 && (
-            <div>
-              <h1 className="font-heading text-3xl font-bold">Welcome to SPACEART</h1>
-              <p className="mt-4 text-muted-foreground">
-                Set up your creative profile. After submission, our team will review
-                your profile before it appears publicly.
-              </p>
+            <div className="space-y-6">
+              <div>
+                <h1 className="font-heading text-2xl font-bold sm:text-3xl">
+                  Welcome to SPACEART
+                </h1>
+                <p className="mt-4 text-sm text-muted-foreground sm:text-base">
+                  Let&apos;s set up your creative profile. This takes about 2 minutes.
+                  After submission, our team will review your profile before it appears publicly.
+                </p>
+              </div>
               <Button
                 variant="accent"
-                className="mt-8"
+                className="w-full sm:w-auto"
                 onClick={() => setStep(1)}
               >
                 Get started
@@ -144,8 +160,10 @@ export function OnboardingWizard() {
           )}
 
           {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="font-heading text-2xl font-bold">Your creative identity</h2>
+            <div className="space-y-5">
+              <h2 className="font-heading text-xl font-bold sm:text-2xl">
+                Your creative identity
+              </h2>
               <div className="space-y-2">
                 <Label htmlFor="display_name">Display name</Label>
                 <Input
@@ -154,6 +172,8 @@ export function OnboardingWizard() {
                   onChange={(e) => setDisplayName(e.target.value)}
                   required
                   className="bg-card"
+                  autoComplete="name"
+                  placeholder="How you want to be known"
                 />
               </div>
               <div className="space-y-2">
@@ -164,6 +184,7 @@ export function OnboardingWizard() {
                   onChange={(e) => setBio(e.target.value)}
                   rows={4}
                   className="bg-card"
+                  placeholder="Tell us about your creative work\u2026"
                 />
               </div>
               <div className="space-y-2">
@@ -186,13 +207,13 @@ export function OnboardingWizard() {
                       <img
                         src={reviewAvatarSrc}
                         alt="Avatar preview"
-                        className="h-20 w-20 rounded-full object-cover ring-2 ring-white/10"
+                        className="h-16 w-16 rounded-full object-cover ring-2 ring-white/10 sm:h-20 sm:w-20"
                       />
                     ) : (
-                      <Skeleton className="h-20 w-20 rounded-full" />
+                      <Skeleton className="h-16 w-16 rounded-full sm:h-20 sm:w-20" />
                     )}
                     {avatarUploading && (
-                      <p className="text-xs text-muted-foreground">Uploading…</p>
+                      <p className="text-xs text-muted-foreground">Uploading\u2026</p>
                     )}
                   </div>
                 )}
@@ -210,7 +231,7 @@ export function OnboardingWizard() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setStep(0)}>
                   Back
                 </Button>
@@ -218,6 +239,7 @@ export function OnboardingWizard() {
                   variant="accent"
                   onClick={() => setStep(2)}
                   disabled={!displayName.trim()}
+                  className="flex-1 sm:flex-none"
                 >
                   Continue
                 </Button>
@@ -226,8 +248,10 @@ export function OnboardingWizard() {
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="font-heading text-2xl font-bold">Location & contact</h2>
+            <div className="space-y-5">
+              <h2 className="font-heading text-xl font-bold sm:text-2xl">
+                Location & contact
+              </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="city">City</Label>
@@ -236,6 +260,8 @@ export function OnboardingWizard() {
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     className="bg-card"
+                    placeholder="e.g. Soweto"
+                    autoComplete="address-level2"
                   />
                 </div>
                 <div className="space-y-2">
@@ -263,9 +289,15 @@ export function OnboardingWizard() {
                   placeholder="+27..."
                   required
                   className="bg-card"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Used for buyer enquiries only. Not shown publicly until you choose to.
+                </p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setStep(1)}>
                   Back
                 </Button>
@@ -273,6 +305,7 @@ export function OnboardingWizard() {
                   variant="accent"
                   onClick={() => setStep(3)}
                   disabled={!whatsapp.trim()}
+                  className="flex-1 sm:flex-none"
                 >
                   Continue
                 </Button>
@@ -281,16 +314,18 @@ export function OnboardingWizard() {
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <h2 className="font-heading text-2xl font-bold">Review & submit</h2>
-              <dl className="space-y-3 rounded-xl border border-white/8 p-6 text-sm">
+            <div className="space-y-5">
+              <h2 className="font-heading text-xl font-bold sm:text-2xl">
+                Review & submit
+              </h2>
+              <dl className="space-y-3 rounded-xl border border-white/8 p-4 text-sm sm:p-6">
                 <div className="flex items-center gap-4">
                   {reviewAvatarSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={reviewAvatarSrc}
                       alt=""
-                      className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-white/10"
+                      className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-white/10 sm:h-14 sm:w-14"
                     />
                   ) : null}
                   <div>
@@ -301,7 +336,7 @@ export function OnboardingWizard() {
                 {bio && (
                   <div>
                     <dt className="text-muted-foreground">Bio</dt>
-                    <dd>{bio}</dd>
+                    <dd className="line-clamp-3">{bio}</dd>
                   </div>
                 )}
                 <div>
@@ -309,13 +344,13 @@ export function OnboardingWizard() {
                   <dd>
                     {avatarUrl
                       ? "Uploaded"
-                      : "Placeholder (upload optional or unavailable)"}
+                      : "Placeholder (upload optional)"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Location</dt>
                   <dd>
-                    {[city, province].filter(Boolean).join(", ") || "—"}
+                    {[city, province].filter(Boolean).join(", ") || "\u2014"}
                   </dd>
                 </div>
                 <div>
@@ -328,8 +363,12 @@ export function OnboardingWizard() {
                   {uploadWarning}
                 </p>
               )}
-              {error && <p className="text-sm text-red-400">{error}</p>}
-              <div className="flex gap-3">
+              {error && (
+                <p className="text-sm text-amber-400" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setStep(2)} disabled={pending}>
                   Back
                 </Button>
@@ -337,8 +376,9 @@ export function OnboardingWizard() {
                   variant="accent"
                   onClick={handleSubmit}
                   disabled={pending}
+                  className="flex-1 sm:flex-none"
                 >
-                  {pending ? "Submitting..." : "Submit for review"}
+                  {pending ? "Submitting\u2026" : "Submit for review"}
                 </Button>
               </div>
             </div>

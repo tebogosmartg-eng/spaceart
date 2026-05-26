@@ -44,11 +44,19 @@ export async function updateSession(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthRoute = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
 
+  function redirectWithSessionCookies(url: URL): NextResponse {
+    const response = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      response.cookies.set(cookie.name, cookie.value, cookie);
+    });
+    return response;
+  }
+
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/sign-in";
     url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+    return redirectWithSessionCookies(url);
   }
 
   let profile: { role: string; onboarding_completed: boolean } | null = null;
@@ -98,7 +106,7 @@ export async function updateSession(request: NextRequest) {
       url.pathname = "/dashboard";
     }
     url.search = "";
-    return NextResponse.redirect(url);
+    return redirectWithSessionCookies(url);
   }
 
   if (pathname.startsWith("/admin")) {
@@ -106,7 +114,7 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth/sign-in";
       url.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(url);
+      return redirectWithSessionCookies(url);
     }
 
     logAuthEvent("info", "Middleware admin gate", {
@@ -120,7 +128,7 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/forbidden";
       url.searchParams.set("from", "admin");
-      return NextResponse.redirect(url);
+      return redirectWithSessionCookies(url);
     }
   }
 
@@ -137,7 +145,7 @@ export async function updateSession(request: NextRequest) {
     ) {
       const url = request.nextUrl.clone();
       url.pathname = ONBOARDING_PATH;
-      return NextResponse.redirect(url);
+      return redirectWithSessionCookies(url);
     }
   }
 
