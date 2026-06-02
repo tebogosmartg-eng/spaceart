@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   updateListing,
   submitListingAction,
@@ -34,24 +35,63 @@ interface ListingFormProps {
 }
 
 interface MediaItem {
+  clientId: string;
   id?: string;
-  url: string;
+  type: "image";
+  url: string | null;
+  previewUrl: string;
   path: string;
   isExisting: boolean;
+  status: "queued" | "uploading" | "uploaded" | "failed";
+  progress: number;
+  error?: string;
+  signature?: string;
+  file?: File;
+  localPreview?: boolean;
 }
 
 const MAX_IMAGES = 10;
+const UPLOAD_PARALLELISM = 2;
 
 function buildMediaItems(listing?: ListingWithRelations): MediaItem[] {
   if (!listing?.listing_media) return [];
   return listing.listing_media
     .sort((a, b) => a.sort_order - b.sort_order)
     .map((m) => ({
+      clientId: `existing-${m.id}`,
       id: m.id,
+      type: "image",
       url: m.url,
+      previewUrl: m.url,
       path: m.storage_path ?? m.cloudinary_public_id ?? "",
       isExisting: true,
+      status: "uploaded",
+      progress: 100,
     }));
+}
+
+function makeFileSignature(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function createClientId() {
+  return `media-${Math.random().toString(36).slice(2, 11)}-${Date.now().toString(36)}`;
+}
+
+function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= items.length ||
+    toIndex >= items.length ||
+    fromIndex === toIndex
+  ) {
+    return items;
+  }
+  const next = [...items];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
 }
 
 export function ListingForm({ categories, listing }: ListingFormProps) {
@@ -61,63 +101,261 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [uploadWarning, setUploadWarning] = useState<string | null>(null);
-  const [imageUploading, setImageUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [categoryId, setCategoryId] = useState(listing?.category_id ?? "");
   const [mediaItems, setMediaItems] = useState<MediaItem[]>(() =>
     buildMediaItems(listing)
   );
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadQueueRef = useRef<string[]>([]);
+  const mediaItemsRef = useRef<MediaItem[]>([]);
+  const uploadTimersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map()
+  );
+  const uploadingRef = useRef<Set<string>>(new Set());
 
-  const newMediaItems = mediaItems.filter((m) => !m.isExisting);
-
-  const isDuplicateUrl = useCallback(
-    (url: string) => mediaItems.some((m) => m.url === url),
+  const pendingUploads = useMemo(
+    () => mediaItems.filter((m) => m.status === "queued" || m.status === "uploading"),
+    [mediaItems]
+  );
+  const failedUploads = useMemo(
+    () => mediaItems.filter((m) => m.status === "failed"),
+    [mediaItems]
+  );
+  const uploadedCount = useMemo(
+    () => mediaItems.filter((m) => m.status === "uploaded").length,
+    [mediaItems]
+  );
+  const existingMedia = useMemo(
+    () => mediaItems.filter((m) => m.isExisting),
     [mediaItems]
   );
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  useEffect(() => {
+    mediaItemsRef.current = mediaItems;
+  }, [mediaItems]);
 
+  useEffect(() => {
+    const timersRef = uploadTimersRef;
+    return () => {
+      const timers = timersRef.current;
+      timers.forEach((timer) => clearInterval(timer));
+      timers.clear();
+      mediaItemsRef.current.forEach((item) => {
+        if (item.localPreview && item.previewUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
+    };
+  }, []);
+
+  const clearUploadTimer = useCallback((clientId: string) => {
+    const timer = uploadTimersRef.current.get(clientId);
+    if (timer) {
+      clearInterval(timer);
+      uploadTimersRef.current.delete(clientId);
+    }
+  }, []);
+
+  const kickOffUploads = useCallback(function kickOffUploads() {
+    while (
+      uploadingRef.current.size < UPLOAD_PARALLELISM &&
+      uploadQueueRef.current.length > 0
+    ) {
+      const clientId = uploadQueueRef.current.shift();
+      if (!clientId) return;
+      const item = mediaItemsRef.current.find((m) => m.clientId === clientId);
+      if (!item || item.status !== "queued" || !item.file) continue;
+
+      uploadingRef.current.add(clientId);
+      setMediaItems((prev) =>
+        prev.map((m) =>
+          m.clientId === clientId ? { ...m, status: "uploading", progress: 5 } : m
+        )
+      );
+
+      const timer = setInterval(() => {
+        setMediaItems((prev) =>
+          prev.map((m) =>
+            m.clientId === clientId
+              ? { ...m, progress: Math.min(m.progress + 8, 90) }
+              : m
+          )
+        );
+      }, 240);
+      uploadTimersRef.current.set(clientId, timer);
+
+      void tryStorageUpload({
+        file: item.file,
+        bucket: "listings",
+        listingId: listing?.id,
+      })
+        .then((result) => {
+          clearUploadTimer(clientId);
+          setMediaItems((prev) =>
+            prev.map((m) =>
+              m.clientId === clientId
+                ? result
+                  ? {
+                      ...m,
+                      status: "uploaded",
+                      progress: 100,
+                      url: result.url,
+                      path: result.path,
+                      error: undefined,
+                    }
+                  : {
+                      ...m,
+                      status: "failed",
+                      progress: 0,
+                      error: "Upload unavailable. Retry in a moment.",
+                    }
+                : m
+            )
+          );
+        })
+        .catch(() => {
+          clearUploadTimer(clientId);
+          setMediaItems((prev) =>
+            prev.map((m) =>
+              m.clientId === clientId
+                ? {
+                    ...m,
+                    status: "failed",
+                    progress: 0,
+                    error: "Upload failed. Please retry.",
+                  }
+                : m
+            )
+          );
+        })
+        .finally(() => {
+          uploadingRef.current.delete(clientId);
+          kickOffUploads();
+        });
+    }
+  }, [clearUploadTimer, listing?.id]);
+
+  useEffect(() => {
+    if (uploadQueueRef.current.length > 0) kickOffUploads();
+  }, [kickOffUploads, mediaItems]);
+
+  const enqueueFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      setUploadWarning(null);
+      setError(null);
+
+      const signatureSet = new Set(
+        mediaItems.map((item) => item.signature).filter(Boolean) as string[]
+      );
+      const deduped: MediaItem[] = [];
+      const blocked: string[] = [];
+      const roomLeft = MAX_IMAGES - mediaItems.length;
+
+      for (const file of files) {
+        if (deduped.length >= roomLeft) {
+          blocked.push(file.name);
+          continue;
+        }
+        const signature = makeFileSignature(file);
+        if (signatureSet.has(signature)) {
+          blocked.push(file.name);
+          continue;
+        }
+        signatureSet.add(signature);
+        const previewUrl = URL.createObjectURL(file);
+        deduped.push({
+          clientId: createClientId(),
+          type: "image",
+          url: null,
+          previewUrl,
+          path: "",
+          isExisting: false,
+          status: "queued",
+          progress: 0,
+          signature,
+          file,
+          localPreview: true,
+        });
+      }
+
+      if (blocked.length > 0) {
+        setUploadWarning(
+          blocked.length === 1
+            ? `"${blocked[0]}" was skipped (duplicate or limit reached).`
+            : `${blocked.length} files were skipped (duplicates or limit reached).`
+        );
+      }
+
+      if (deduped.length === 0) return;
+      setMediaItems((prev) => [...prev, ...deduped]);
+      uploadQueueRef.current.push(...deduped.map((item) => item.clientId));
+      kickOffUploads();
+    },
+    [kickOffUploads, mediaItems]
+  );
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    enqueueFiles(files);
+    e.target.value = "";
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragActive(false);
     if (mediaItems.length >= MAX_IMAGES) {
       setUploadWarning(`Maximum ${MAX_IMAGES} images allowed per listing.`);
-      e.target.value = "";
       return;
     }
-
-    setUploadWarning(null);
-    setImageUploading(true);
-
-    const result = await tryStorageUpload({
-      file,
-      bucket: "listings",
-      listingId: listing?.id,
-    });
-
-    setImageUploading(false);
-    e.target.value = "";
-
-    if (result) {
-      if (isDuplicateUrl(result.url)) {
-        setUploadWarning("This image has already been added.");
-        return;
-      }
-      setMediaItems((prev) => [
-        ...prev,
-        { url: result.url, path: result.path, isExisting: false },
-      ]);
-      return;
-    }
-
-    setUploadWarning(
-      listing
-        ? "Image upload is temporarily unavailable. Please try again."
-        : "Image upload is temporarily unavailable. You can still create the listing and add photos later."
+    const files = Array.from(e.dataTransfer.files ?? []).filter((file) =>
+      file.type.startsWith("image/")
     );
+    enqueueFiles(files);
+  }
+
+  function handleRetryUpload(item: MediaItem) {
+    if (!item.file || item.status !== "failed") return;
+    setMediaItems((prev) =>
+      prev.map((m) =>
+        m.clientId === item.clientId
+          ? { ...m, status: "queued", progress: 0, error: undefined }
+          : m
+      )
+    );
+    uploadQueueRef.current.push(item.clientId);
+    kickOffUploads();
+  }
+
+  function moveMedia(clientId: string, direction: "left" | "right") {
+    setMediaItems((prev) => {
+      const index = prev.findIndex((item) => item.clientId === clientId);
+      if (index === -1) return prev;
+      const nextIndex = direction === "left" ? index - 1 : index + 1;
+      return moveItem(prev, index, nextIndex);
+    });
+  }
+
+  function setPrimary(clientId: string) {
+    setMediaItems((prev) => {
+      const index = prev.findIndex((item) => item.clientId === clientId);
+      if (index <= 0) return prev;
+      return moveItem(prev, index, 0);
+    });
   }
 
   async function handleRemoveMedia(item: MediaItem) {
+    clearUploadTimer(item.clientId);
+    uploadingRef.current.delete(item.clientId);
+    uploadQueueRef.current = uploadQueueRef.current.filter((id) => id !== item.clientId);
+    if (item.localPreview && item.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+
     if (item.isExisting && item.id) {
       if (confirmRemoveId !== item.id) {
         setConfirmRemoveId(item.id);
@@ -137,9 +375,7 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
         setRemovingId(null);
       }
     } else {
-      setMediaItems((prev) =>
-        prev.filter((m) => m.url !== item.url || m.path !== item.path)
-      );
+      setMediaItems((prev) => prev.filter((m) => m.clientId !== item.clientId));
     }
   }
 
@@ -147,11 +383,21 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
     setError(null);
     formData.set("category_id", categoryId);
 
-    const mediaToSubmit = listing ? newMediaItems : mediaItems;
+    if (pendingUploads.length > 0) {
+      setError("Please wait for uploads to finish before saving.");
+      return;
+    }
+    if (failedUploads.length > 0) {
+      setError("Resolve failed uploads before saving your listing.");
+      return;
+    }
+
+    const mediaToSubmit = mediaItems.filter((m) => m.status === "uploaded" && m.url);
 
     mediaToSubmit.forEach((m) => {
-      formData.append("media_urls", m.url);
+      formData.append("media_urls", m.url!);
       formData.append("storage_paths", m.path);
+      formData.append("media_record_ids", m.id ?? "");
       formData.append("media_ids", m.path);
     });
 
@@ -159,9 +405,6 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
       startTransition(async () => {
         try {
           await updateListing(listing.id, formData);
-          setMediaItems((prev) =>
-            prev.map((m) => (m.isExisting ? m : { ...m, isExisting: true }))
-          );
           router.refresh();
         } catch (e) {
           setError(e instanceof Error ? e.message : "Failed to save");
@@ -204,10 +447,8 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
     });
   }
 
-  const existingMedia = mediaItems.filter((m) => m.isExisting);
-
   return (
-    <div className="space-y-8 max-w-xl">
+    <div className="max-w-3xl space-y-8">
       {listing && <StatusBadge status={listing.status} />}
 
       <form action={handleSubmit} className="space-y-6">
@@ -262,7 +503,7 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
         </div>
 
         {/* Media management section */}
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Label htmlFor="images">
               Images{" "}
@@ -273,32 +514,76 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
             {listing && existingMedia.length > 0 && (
               <span className="text-xs text-muted-foreground">
                 {existingMedia.length} saved
-                {newMediaItems.length > 0 &&
-                  ` · ${newMediaItems.length} new`}
+                {uploadedCount > existingMedia.length &&
+                  ` · ${uploadedCount - existingMedia.length} new`}
               </span>
             )}
           </div>
 
-          {/* Existing media gallery */}
-          {existingMedia.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {existingMedia.map((item) => (
+          {mediaItems.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Drag to reorder. First image is your primary marketplace thumbnail.
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {mediaItems.map((item, index) => (
                 <div
-                  key={item.id ?? item.url}
-                  className="group relative aspect-square overflow-hidden rounded-xl ring-1 ring-white/10 bg-muted/20"
+                  key={item.clientId}
+                  draggable
+                  onDragStart={() => setDraggedId(item.clientId)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (!draggedId || draggedId === item.clientId) return;
+                    setMediaItems((prev) => {
+                      const from = prev.findIndex((m) => m.clientId === draggedId);
+                      const to = prev.findIndex((m) => m.clientId === item.clientId);
+                      return moveItem(prev, from, to);
+                    });
+                    setDraggedId(null);
+                  }}
+                  className="group relative aspect-square overflow-hidden rounded-2xl border border-white/10 bg-muted/20 shadow-sm transition-brand hover:border-white/20"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={item.url}
+                  <Image
+                    src={item.previewUrl}
                     alt=""
-                    className="h-full w-full object-cover"
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                    unoptimized={item.previewUrl.startsWith("blob:")}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent opacity-80 transition-opacity group-hover:opacity-100" />
+                  {index === 0 && (
+                    <span className="absolute left-2 top-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black">
+                      Primary
+                    </span>
+                  )}
+                  {item.status !== "uploaded" && (
+                    <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/65 px-2 py-1 text-[11px] text-white backdrop-blur-sm">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span>
+                          {item.status === "uploading"
+                            ? "Uploading"
+                            : item.status === "queued"
+                              ? "Queued"
+                              : "Failed"}
+                        </span>
+                        <span>{item.progress}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/25">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            item.status === "failed" ? "bg-red-400" : "bg-accent"
+                          }`}
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <button
                     type="button"
-                    disabled={removingId === item.id}
+                    disabled={removingId === item.id || item.status === "uploading"}
                     onClick={() => handleRemoveMedia(item)}
-                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white opacity-0 ring-1 ring-white/20 backdrop-blur-sm transition-all hover:bg-red-600 hover:ring-red-500/50 group-hover:opacity-100 active:scale-95 disabled:opacity-50 sm:h-6 sm:w-6"
+                    className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white ring-1 ring-white/20 backdrop-blur-sm transition-all hover:bg-red-600 hover:ring-red-500/50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={
                       confirmRemoveId === item.id
                         ? "Confirm remove"
@@ -313,6 +598,42 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
                       <XIcon className="h-3 w-3" />
                     )}
                   </button>
+                  {item.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => handleRetryUpload(item)}
+                      className="absolute left-2 top-2 rounded-full bg-amber-400/90 px-2 py-1 text-[10px] font-medium text-black"
+                    >
+                      Retry
+                    </button>
+                  )}
+                  <div className="absolute inset-x-2 bottom-2 z-10 flex items-center gap-1 opacity-95">
+                    <button
+                      type="button"
+                      onClick={() => moveMedia(item.clientId, "left")}
+                      disabled={index === 0}
+                      className="rounded-md bg-black/70 px-1.5 py-1 text-[10px] text-white disabled:opacity-40"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveMedia(item.clientId, "right")}
+                      disabled={index === mediaItems.length - 1}
+                      className="rounded-md bg-black/70 px-1.5 py-1 text-[10px] text-white disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPrimary(item.clientId)}
+                        className="rounded-md bg-accent/90 px-1.5 py-1 text-[10px] font-medium text-black"
+                      >
+                        Set primary
+                      </button>
+                    )}
+                  </div>
                   {confirmRemoveId === item.id && (
                     <div className="absolute inset-x-0 bottom-0 bg-red-600/90 px-2 py-1 text-center text-[10px] font-medium text-white backdrop-blur-sm">
                       Tap again to remove
@@ -320,61 +641,58 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
                   )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {/* Newly uploaded (unsaved) previews */}
-          {newMediaItems.length > 0 && (
-            <div className="space-y-1.5">
-              {listing && (
-                <p className="text-xs font-medium text-accent">
-                  New — save to keep
-                </p>
-              )}
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {newMediaItems.map((item) => (
-                  <div
-                    key={item.path}
-                    className="group relative aspect-square overflow-hidden rounded-xl ring-1 ring-accent/30 bg-muted/20"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.url}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMedia(item)}
-                      className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-white opacity-0 ring-1 ring-white/20 backdrop-blur-sm transition-all hover:bg-red-600 hover:ring-red-500/50 group-hover:opacity-100 active:scale-95 sm:h-6 sm:w-6"
-                      aria-label="Remove image"
-                    >
-                      <XIcon className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
               </div>
             </div>
           )}
 
           {/* Upload input */}
           {mediaItems.length < MAX_IMAGES && (
-            <div className="space-y-2">
+            <div
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+              className={`rounded-2xl border border-dashed p-4 transition-colors ${
+                dragActive
+                  ? "border-accent bg-accent/10"
+                  : "border-white/15 bg-card/40 hover:border-white/30"
+              }`}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Drop images here or browse. Add more anytime.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Add images
+                </Button>
+              </div>
               <Input
+                ref={fileInputRef}
                 id="images"
                 type="file"
+                multiple
                 accept="image/jpeg,image/png,image/webp,image/gif"
-                onChange={handleImageUpload}
-                disabled={imageUploading}
+                onChange={handleImageSelect}
                 className="bg-card file:mr-3 file:rounded-md file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:text-sm file:font-medium file:text-accent hover:file:bg-accent/20"
               />
-              {imageUploading && (
+              {pendingUploads.length > 0 && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <LoadingSpinner className="h-3.5 w-3.5" />
-                  <span>Uploading image…</span>
+                  <span>
+                    Uploading {pendingUploads.length} image
+                    {pendingUploads.length === 1 ? "" : "s"}...
+                  </span>
                 </div>
               )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                JPEG, PNG, WebP, GIF up to 5MB each. Primary image appears on cards.
+              </p>
             </div>
           )}
 
@@ -398,7 +716,10 @@ export function ListingForm({ categories, listing }: ListingFormProps) {
           <Button
             type="submit"
             disabled={
-              pending || createListingMutation.isPending || !categoryId
+              pending ||
+              createListingMutation.isPending ||
+              !categoryId ||
+              pendingUploads.length > 0
             }
             variant="accent"
           >

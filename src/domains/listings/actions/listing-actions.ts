@@ -103,37 +103,76 @@ export async function updateListing(listingId: string, formData: FormData) {
   const mediaUrls = formData.getAll("media_urls") as string[];
   const storagePaths = formData.getAll("storage_paths") as string[];
   const mediaIds = formData.getAll("media_ids") as string[];
+  const mediaRecordIds = formData.getAll("media_record_ids") as string[];
+
+  const { data: allExisting } = await supabase
+    .from("listing_media")
+    .select("id, url")
+    .eq("listing_id", listingId);
+
+  const existingById = new Map<string, { id: string; url: string }>();
+  const existingByUrl = new Map<string, { id: string; url: string }>();
+  allExisting?.forEach((m) => {
+    existingById.set(m.id, m);
+    existingByUrl.set(m.url, m);
+  });
+
+  for (let i = 0; i < mediaUrls.length; i++) {
+    const url = mediaUrls[i];
+    if (!url) continue;
+
+    const explicitRecordId = mediaRecordIds[i] ?? "";
+    const matchedExisting =
+      (explicitRecordId ? existingById.get(explicitRecordId) : undefined) ??
+      existingByUrl.get(url);
+
+    if (matchedExisting) {
+      const { error: reorderError } = await supabase
+        .from("listing_media")
+        .update({ sort_order: i })
+        .eq("id", matchedExisting.id)
+        .eq("listing_id", listingId);
+      if (reorderError) throw new Error(reorderError.message);
+      continue;
+    }
+
+    const { error: insertError } = await supabase.from("listing_media").insert({
+      listing_id: listingId,
+      url,
+      storage_path: storagePaths[i] ?? null,
+      cloudinary_public_id: mediaIds[i] ?? null,
+      sort_order: i,
+    });
+
+    if (insertError) throw new Error(insertError.message);
+  }
 
   if (mediaUrls.length > 0) {
-    const { data: existing } = await supabase
-      .from("listing_media")
-      .select("url, sort_order")
-      .eq("listing_id", listingId)
-      .order("sort_order", { ascending: false })
-      .limit(1);
+    const keepIds = new Set(
+      mediaRecordIds.filter(Boolean).filter((id) => existingById.has(id))
+    );
+    const keepUrls = new Set(mediaUrls.filter(Boolean));
+    const staleIds =
+      allExisting
+        ?.filter((m) => !keepIds.has(m.id) && !keepUrls.has(m.url))
+        .map((m) => m.id) ?? [];
 
-    const nextOrder = (existing?.[0]?.sort_order ?? -1) + 1;
-    const existingUrls = new Set<string>();
+    if (staleIds.length > 0) {
+      const { error: cleanupError } = await supabase
+        .from("listing_media")
+        .delete()
+        .eq("listing_id", listingId)
+        .in("id", staleIds);
 
-    const { data: allExisting } = await supabase
+      if (cleanupError) throw new Error(cleanupError.message);
+    }
+  } else {
+    const { error: clearError } = await supabase
       .from("listing_media")
-      .select("url")
+      .delete()
       .eq("listing_id", listingId);
 
-    allExisting?.forEach((m) => existingUrls.add(m.url));
-
-    for (let i = 0; i < mediaUrls.length; i++) {
-      const url = mediaUrls[i];
-      if (!url || existingUrls.has(url)) continue;
-
-      await supabase.from("listing_media").insert({
-        listing_id: listingId,
-        url,
-        storage_path: storagePaths[i] ?? null,
-        cloudinary_public_id: mediaIds[i] ?? null,
-        sort_order: nextOrder + i,
-      });
-    }
+    if (clearError) throw new Error(clearError.message);
   }
 
   revalidatePath(`/dashboard/listings/${listingId}/edit`);

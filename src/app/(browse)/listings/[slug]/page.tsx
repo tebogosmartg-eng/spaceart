@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: PageProps) {
   const title = listing.title;
   const description =
     listing.description ?? `${title} — available on SPACEART`;
-  const imageUrl = listing.listing_media?.sort(
+  const imageUrl = [...(listing.listing_media ?? [])].sort(
     (a, b) => a.sort_order - b.sort_order
   )[0]?.url;
 
@@ -50,7 +50,7 @@ export default async function ListingDetailPage({ params }: PageProps) {
   if (!listing) notFound();
 
   const creative = listing.creatives;
-  const media = listing.listing_media?.sort(
+  const media = [...(listing.listing_media ?? [])].sort(
     (a, b) => a.sort_order - b.sort_order
   );
 
@@ -58,26 +58,32 @@ export default async function ListingDetailPage({ params }: PageProps) {
     <Container>
       <BrowseBreadcrumb href="/listings" label="Back to listings" />
 
-      <div className="grid gap-12 lg:grid-cols-2">
-        <div className="space-y-4">
+      <div className="grid gap-10 lg:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
           {media && media.length > 0 ? (
             media.map((item, i) => (
               <div
                 key={item.id}
-                className="relative aspect-[4/3] overflow-hidden rounded-xl border border-white/8"
+                className={`relative overflow-hidden rounded-xl border border-white/8 ${
+                  i === 0 ? "col-span-2 aspect-[4/3]" : "aspect-square"
+                }`}
               >
                 <Image
                   src={item.url}
                   alt={`${listing.title} ${i + 1}`}
                   fill
                   priority={i === 0}
-                  className="object-cover"
-                  sizes="(max-width: 1024px) 100vw, 50vw"
+                  className="object-cover transition-transform duration-500 hover:scale-[1.02]"
+                  sizes={
+                    i === 0
+                      ? "(max-width: 1024px) 100vw, 50vw"
+                      : "(max-width: 768px) 50vw, 25vw"
+                  }
                 />
               </div>
             ))
           ) : (
-            <div className="aspect-[4/3] rounded-xl bg-card" />
+            <div className="col-span-2 aspect-[4/3] rounded-xl bg-card" />
           )}
         </div>
 

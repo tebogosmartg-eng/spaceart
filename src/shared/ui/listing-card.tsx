@@ -12,7 +12,7 @@ interface ListingCardProps {
 }
 
 export function ListingCard({ listing, className, priority }: ListingCardProps) {
-  const media = listing.listing_media?.sort(
+  const media = [...(listing.listing_media ?? [])].sort(
     (a, b) => a.sort_order - b.sort_order
   )[0];
   const imageUrl = media?.url;
@@ -34,13 +34,13 @@ export function ListingCard({ listing, className, priority }: ListingCardProps) 
             alt={listing.title}
             fill
             priority={priority}
-            className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+            className="object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-muted to-card" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-70 transition-opacity duration-300 group-hover:opacity-100" />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           {listing.categories && (
             <span className="rounded-full border border-white/10 bg-background/75 px-2.5 py-1 text-[11px] font-medium backdrop-blur-md">
