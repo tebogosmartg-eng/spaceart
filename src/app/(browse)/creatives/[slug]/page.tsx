@@ -15,6 +15,7 @@ import { DiscoveryCta } from "@/shared/ui/discovery-cta";
 import { StickyWhatsAppBar } from "@/shared/ui/sticky-whatsapp-bar";
 import { MotionReveal, StaggerChildren, StaggerItem } from "@/shared/ui/motion-reveal";
 import { siteConfig } from "@/shared/config/site";
+import { buildCanonicalPath } from "@/shared/config/canonical-url";
 import { LayoutGrid } from "lucide-react";
 
 interface PageProps {
@@ -34,14 +35,18 @@ export async function generateMetadata({ params }: PageProps) {
     : creative.cover_image_url?.startsWith("http")
       ? creative.cover_image_url
       : undefined;
+  const canonicalUrl = buildCanonicalPath(`/creatives/${slug}`);
 
   return {
     title,
     description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
       title: `${title} | ${siteConfig.name}`,
       description,
-      url: `/creatives/${slug}`,
+      url: canonicalUrl,
       type: "profile",
       ...(imageUrl && { images: [{ url: imageUrl, alt: title }] }),
     },

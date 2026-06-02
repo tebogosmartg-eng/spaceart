@@ -33,10 +33,17 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
-**Optional:**
+**Site URL strategy (required for reliable sharing/SEO in production):**
 
 ```env
+# Local development
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# Vercel production (set in Vercel project env vars)
+# NEXT_PUBLIC_SITE_URL=https://spaceart-two.vercel.app
+
+# For future custom domain migration, update NEXT_PUBLIC_SITE_URL only.
+# All share/canonical/metadata URLs resolve from this single value.
 NEXT_PUBLIC_USE_DEMO_CONTENT=false
 ```
 

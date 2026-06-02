@@ -1,4 +1,5 @@
 import { siteConfig } from "@/shared/config/site";
+import { buildCanonicalPath } from "@/shared/config/canonical-url";
 
 export interface SharePayload {
   title: string;
@@ -16,11 +17,11 @@ export interface ShareEvent {
 }
 
 export function buildListingUrl(slug: string): string {
-  return `${siteConfig.url}/listings/${slug}`;
+  return buildCanonicalPath(`/listings/${slug}`);
 }
 
 export function buildCreativeUrl(slug: string): string {
-  return `${siteConfig.url}/creatives/${slug}`;
+  return buildCanonicalPath(`/creatives/${slug}`);
 }
 
 export function buildWhatsAppShareUrl(text: string): string {

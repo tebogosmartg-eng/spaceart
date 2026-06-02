@@ -9,6 +9,7 @@ import { WhatsAppButton } from "@/shared/ui/whatsapp-button";
 import { StickyWhatsAppBar } from "@/shared/ui/sticky-whatsapp-bar";
 import { ShareActions } from "@/shared/ui/share-actions";
 import { formatPrice } from "@/shared/lib/utils";
+import { buildCanonicalPath } from "@/shared/config/canonical-url";
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
@@ -24,14 +25,18 @@ export async function generateMetadata({ params }: PageProps) {
   const imageUrl = [...(listing.listing_media ?? [])].sort(
     (a, b) => a.sort_order - b.sort_order
   )[0]?.url;
+  const canonicalUrl = buildCanonicalPath(`/listings/${slug}`);
 
   return {
     title,
     description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
       title: `${title} | SPACEART`,
       description,
-      url: `/listings/${slug}`,
+      url: canonicalUrl,
       type: "website",
       ...(imageUrl && { images: [{ url: imageUrl, alt: title }] }),
     },

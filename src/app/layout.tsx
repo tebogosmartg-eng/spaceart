@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
+import { getCanonicalSiteUrlObject } from "@/shared/config/canonical-url";
 import { siteConfig } from "@/shared/config/site";
 import { QueryProvider } from "@/shared/providers/query-provider";
 import { ToastProvider } from "@/shared/ui/toast";
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
     template: `%s | ${siteConfig.name}`,
   },
   description: siteConfig.description,
-  metadataBase: new URL(siteConfig.url),
+  metadataBase: getCanonicalSiteUrlObject(),
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/icon.svg", type: "image/svg+xml" }],

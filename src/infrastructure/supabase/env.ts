@@ -1,4 +1,5 @@
 import { isDevVerbose } from "@/shared/lib/dev-log";
+import { getCanonicalSiteUrl } from "@/shared/config/canonical-url";
 
 const ROOT_ENV_HINT =
   "Add variables to `.env.local` at the project root (next to package.json and next.config.ts). " +
@@ -115,30 +116,5 @@ export function getSupabaseAnonKey(): string {
 }
 
 export function getSiteUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_SITE_URL;
-  const value = raw?.trim();
-
-  // In production, never return a localhost URL
-  const isProduction = process.env.NODE_ENV === "production";
-  const isLocalhost = (url: string) => /localhost|127\.0\.0\.1/i.test(url);
-
-  if (value && value.length > 0 && !(isProduction && isLocalhost(value))) {
-    return value;
-  }
-
-  const vercelUrl =
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ??
-    process.env.NEXT_PUBLIC_VERCEL_URL ??
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
-    process.env.VERCEL_URL;
-  if (vercelUrl) return `https://${vercelUrl}`;
-
-  if (isProduction) {
-    console.error(
-      "[spaceart] CRITICAL: No production URL configured. " +
-        "Set NEXT_PUBLIC_SITE_URL in Vercel environment variables to https://spaceart-two.vercel.app"
-    );
-  }
-
-  return "http://localhost:3000";
+  return getCanonicalSiteUrl();
 }
